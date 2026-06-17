@@ -1,0 +1,134 @@
+import { useEffect, useState } from 'react'
+import { supabase } from '../lib/supabase'
+import Modal from '../components/Modal'
+
+const EMPTY = { nombre: '', cat: 'Puertas lacadas', stock: 0, min: 3, max: 20, coste: 0, unidad: 'ud' }
+
+export default function Stock() {
+  const [productos, setProductos] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [catFilter, setCatFilter] = useState('')
+  const [estadoFilter, setEstadoFilter] = useState('')
+  const [modal, setModal] = useState(null)
+  const [form, setForm] = useState(EMPTY)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => { load() }, [])
+
+  async function load() {
+    const { data } = await supabase.from('productos').select('*').order('cat').order('nombre')
+    setProductos(data || [])
+    setLoading(false)
+  }
+
+  function getStatus(p) {
+    if (p.stock === 0) return { label: 'Sin stock', cls: 'crit' }
+    if (p.stock <= p.min) return { label: 'Bajo mínimo', cls: 'warn' }
+    return { label: 'OK', cls: 'ok' }
+  }
+
+  function barColor(pct) {
+    if (pct >= 60) return '#2e7d32'
+    if (pct >= 30) return '#f57f17'
+    return '#c62828'
+  }
+
+  const cats = [...new Set(productos.map(p => p.cat))]
+  const filtered = productos.filter(p => {
+    if (search && !p.nombre.toLowerCase().includes(search.toLowerCase())) return false
+    if (catFilter && p.cat !== catFilter) return false
+    const st = getStatus(p)
+    if (estadoFilter === 'ok' && st.cls !== 'ok') return false
+    if (estadoFilter === 'bajo' && st.cls !== 'warn') return false
+    if (estadoFilter === 'sin' && st.cls !== 'crit') return false
+    return true
+  })
+
+  function openNew() { setForm(EMPTY); setModal('new') }
+  function openEdit(p) { setForm({ ...p }); setModal('edit') }
+
+  async function save() {
+    setSaving(true)
+    if (modal === 'new') {
+      await supabase.from('productos').insert([form])
+    } else {
+      const { id, created_at, ...rest } = form
+      await supabase.from('productos').update(rest).eq('id', id)
+    }
+    setSaving(false)
+    setModal(null)
+    load()
+  }
+
+  async function del(id) {
+    if (!confirm('¿Eliminar producto?')) return
+    await supabase.from('productos').delete().eq('id', id)
+    load()
+  }
+
+  if (loading) return <div style={{ padding: '2rem', color: '#888' }}>Cargando...</div>
+
+  return (
+    <div>
+      <div className="page-header">
+        <div><div className="page-title">Stock</div><div className="page-sub">Inventario completo</div></div>
+        <button className="btn btn-primary btn-sm" onClick={openNew}>+ Nuevo producto</button>
+      </div>
+      <div className="filter-bar">
+        <input style={{width:200}} placeholder="Buscar..." value={search} onChange={e=>setSearch(e.target.value)} />
+        <select style={{width:170}} value={catFilter} onChange={e=>setCatFilter(e.target.value)}>
+          <option value="">Todas las categorías</option>
+          {cats.map(c=><option key={c}>{c}</option>)}
+        </select>
+        <select style={{width:150}} value={estadoFilter} onChange={e=>setEstadoFilter(e.target.value)}>
+          <option value="">Todos los estados</option>
+          <option value="ok">OK</option>
+          <option value="bajo">Bajo mínimo</option>
+          <option value="sin">Sin stock</option>
+        </select>
+        <span style={{color:'#888',fontSize:12}}>{filtered.length} productos</span>
+      </div>
+      <div className="card" style={{padding:0}}>
+        <table className="tbl">
+          <thead><tr><th>Producto</th><th>Categoría</th><th>Stock</th><th>Mín/Máx</th><th>Nivel</th><th>Estado</th><th>Coste</th><th></th></tr></thead>
+          <tbody>
+            {filtered.map(p => {
+              const st = getStatus(p)
+              const pct = p.max > 0 ? Math.min(100, Math.round((p.stock/p.max)*100)) : 0
+              return (
+                <tr key={p.id}>
+                  <td style={{fontWeight:500}}>{p.nombre}</td>
+                  <td><span className="badge badge-gray">{p.cat}</span></td>
+                  <td style={{fontWeight:600}}>{p.stock} <span style={{fontSize:11,color:'#888',fontWeight:400}}>{p.unidad}</span></td>
+                  <td style={{color:'#888',fontSize:12}}>{p.min} / {p.max}</td>
+                  <td><div className="bar-wrap"><div className="bar" style={{width:pct+'%',background:barColor(pct)}} /></div><span style={{fontSize:11}}>{pct}%</span></td>
+                  <td><span className={`badge badge-${st.cls}`}>{st.label}</span></td>
+                  <td style={{fontSize:13}}>{p.coste?p.coste+'€':'—'}</td>
+                  <td><div style={{display:'flex',gap:4}}><button className="btn btn-sm" onClick={()=>openEdit(p)}>✏️</button><button className="btn btn-sm btn-danger" onClick={()=>del(p.id)}>🗑</button></div></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        {filtered.length === 0 && <div className="empty-state">Sin productos</div>}
+      </div>
+      {modal && (
+        <Modal title={modal==='new'?'Nuevo producto':'Editar producto'} onClose={()=>setModal(null)}>
+          <div className="form-row c2">
+            <div><label>Nombre</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} /></div>
+            <div><label>Categoría</label><select value={form.cat} onChange={e=>setForm({...form,cat:e.target.value})}><option>Puertas lacadas</option><option>Puertas laminadas</option><option>Accesorios</option></select></div>
+          </div>
+          <div className="form-row c4">
+            <div><label>Stock</label><input type="number" value={form.stock} onChange={e=>setForm({...form,stock:+e.target.value})} /></div>
+            <div><label>Mínimo</label><input type="number" value={form.min} onChange={e=>setForm({...form,min:+e.target.value})} /></div>
+            <div><label>Máximo</label><input type="number" value={form.max} onChange={e=>setForm({...form,max:+e.target.value})} /></div>
+            <div><label>Coste €</label><input type="number" value={form.coste} onChange={e=>setForm({...form,coste:+e.target.value})} /></div>
+          </div>
+          <div className="form-row c2"><div><label>Unidad</label><input value={form.unidad} onChange={e=>setForm({...form,unidad:e.target.value})} /></div></div>
+          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?'Guardando...':'✓ Guardar'}</button>
+        </Modal>
+      )}
+    </div>
+  )
+}
