@@ -63,13 +63,13 @@ ${context?.eventos.map(e=>`- ${e.fecha}: ${e.titulo} (${e.tipo})`).join('\n')||'
 VALOR INVENTARIO: ${context?.productos.reduce((a,p)=>a+(p.stock*(p.coste||0)),0).toLocaleString('es-ES')}€`
 
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, system: sys, messages: [{ role: 'user', content: userMsg }] })
       })
       const data = await res.json()
-      setMsgs(m => [...m, { role: 'ai', text: data.content?.[0]?.text || 'Sin respuesta.' }])
+      setMsgs(m => [...m, { role: 'ai', text: data.content?.[0]?.text || data.error || 'Sin respuesta.' }])
     } catch {
       setMsgs(m => [...m, { role: 'ai', text: 'Error de conexión.' }])
     }
