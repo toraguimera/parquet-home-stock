@@ -78,10 +78,19 @@ export default function Stock() {
   async function save() {
     setSaving(true)
     if (modal === 'new') {
-      await supabase.from('productos').insert([form])
+      const { data } = await supabase.from('productos').insert([form]).select()
+      const creado = data && data[0]
+      if (creado && +form.stock > 0) {
+        await supabase.from('movimientos').insert([{ prod_id: creado.id, tipo: 'entrada', cantidad: +form.stock, ref: 'Alta producto', notas: 'Stock inicial', fecha: new Date().toISOString().slice(0,10) }])
+      }
     } else {
       const { id, created_at, ...rest } = form
+      const prev = productos.find(p => p.id === id)
       await supabase.from('productos').update(rest).eq('id', id)
+      if (prev && +rest.stock !== +prev.stock) {
+        const delta = +rest.stock - +prev.stock
+        await supabase.from('movimientos').insert([{ prod_id: id, tipo: delta > 0 ? 'entrada' : 'salida', cantidad: Math.abs(delta), ref: 'Ajuste manual', notas: 'Edicion en Existencias', fecha: new Date().toISOString().slice(0,10) }])
+      }
     }
     setSaving(false)
     setModal(null)
