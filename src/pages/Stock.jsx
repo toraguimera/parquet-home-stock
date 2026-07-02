@@ -6,7 +6,7 @@ import Modal from '../components/Modal'
 const DOOR_CATS = ['2 Rayas Verticales', '4 Rayas', 'Lisa', 'Pulsera']
 const esPuerta = (p) => DOOR_CATS.includes(p.cat)
 
-const EMPTY = { nombre: '', cat: '2 Rayas Verticales', stock: 0, min: 10, max: 20, coste: 0, unidad: 'ud' }
+const EMPTY = { nombre: '', cat: '2 Rayas Verticales', stock: 0, min: 10, max: 20, coste: 0, unidad: 'ud', ubicacion: '' }
 
 export default function Stock() {
   const [productos, setProductos] = useState([])
@@ -140,7 +140,7 @@ export default function Stock() {
               const pct = p.max > 0 ? Math.min(100, Math.round((p.stock/p.max)*100)) : 0
               return (
                 <tr key={p.id}>
-                  <td style={{fontWeight:500}}>{p.nombre}</td>
+                  <td style={{fontWeight:500}}>{p.nombre}{p.ubicacion && <div style={{fontSize:11,color:'#888',fontWeight:400,marginTop:2}}>📍 {p.ubicacion}</div>}</td>
                   <td><span className="badge badge-gray">{p.cat}</span></td>
                   <td style={{fontWeight:600}}>{p.stock} <span style={{fontSize:11,color:'#888',fontWeight:400}}>{p.unidad}</span></td>
                   <td style={{color:'#888',fontSize:12}}>{p.min} / {p.max}</td>
@@ -168,7 +168,7 @@ export default function Stock() {
             <div><label>Máximo</label><input type="number" value={form.max} onChange={e=>setForm({...form,max:+e.target.value})} /></div>
             <div><label>Coste €</label><input type="number" value={form.coste} onChange={e=>setForm({...form,coste:+e.target.value})} /></div>
           </div>
-          <div className="form-row c2"><div><label>Unidad</label><input value={form.unidad} onChange={e=>setForm({...form,unidad:e.target.value})} /></div></div>
+          <div className="form-row c2"><div><label>Unidad</label><input value={form.unidad} onChange={e=>setForm({...form,unidad:e.target.value})} /></div><div><label>Ubicación</label><input value={form.ubicacion||''} onChange={e=>setForm({...form,ubicacion:e.target.value})} placeholder="Ej: Estantería 13 · Piso 2 o Suelo" /></div></div>
           <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?'Guardando...':'✓ Guardar'}</button>
         </Modal>
       )}
