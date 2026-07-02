@@ -2,11 +2,16 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import Modal from '../components/Modal'
 
-const EMPTY = { nombre: '', cat: 'Puertas lacadas', stock: 0, min: 3, max: 20, coste: 0, unidad: 'ud' }
+// Familias que se consideran PUERTAS. El resto de categorías son complementos.
+const DOOR_CATS = ['2 Rayas Verticales', '4 Rayas', 'Lisa', 'Pulsera']
+const esPuerta = (p) => DOOR_CATS.includes(p.cat)
+
+const EMPTY = { nombre: '', cat: '2 Rayas Verticales', stock: 0, min: 10, max: 20, coste: 0, unidad: 'ud' }
 
 export default function Stock() {
   const [productos, setProductos] = useState([])
   const [loading, setLoading] = useState(true)
+  const [familia, setFamilia] = useState('Puertas')
   const [search, setSearch] = useState('')
   const [catFilter, setCatFilter] = useState('')
   const [estadoFilter, setEstadoFilter] = useState('')
@@ -34,8 +39,17 @@ export default function Stock() {
     return '#c62828'
   }
 
-  const cats = [...new Set(productos.map(p => p.cat))]
-  const filtered = productos.filter(p => {
+  // Todas las categorías (para el desplegable del formulario)
+  const allCats = [...new Set(productos.map(p => p.cat))]
+
+  // Productos de la pestaña activa
+  const base = productos.filter(p => familia === 'Puertas' ? esPuerta(p) : !esPuerta(p))
+  const cats = [...new Set(base.map(p => p.cat))]
+
+  const nPuertas = productos.filter(esPuerta).length
+  const nComplementos = productos.length - nPuertas
+
+  const filtered = base.filter(p => {
     if (search && !p.nombre.toLowerCase().includes(search.toLowerCase())) return false
     if (catFilter && p.cat !== catFilter) return false
     const st = getStatus(p)
@@ -45,7 +59,20 @@ export default function Stock() {
     return true
   })
 
-  function openNew() { setForm(EMPTY); setModal('new') }
+  const totalUnidades = filtered.reduce((s, p) => s + (p.stock || 0), 0)
+
+  function switchFamilia(f) {
+    setFamilia(f)
+    setCatFilter('')
+    setSearch('')
+    setEstadoFilter('')
+  }
+
+  function openNew() {
+    const defCat = familia === 'Puertas' ? '2 Rayas Verticales' : (cats[0] || 'Batientes (Marco fijo)')
+    setForm({ ...EMPTY, cat: defCat })
+    setModal('new')
+  }
   function openEdit(p) { setForm({ ...p }); setModal('edit') }
 
   async function save() {
@@ -75,9 +102,23 @@ export default function Stock() {
         <div><div className="page-title">Stock</div><div className="page-sub">Inventario completo</div></div>
         <button className="btn btn-primary btn-sm" onClick={openNew}>+ Nuevo producto</button>
       </div>
+
+      <div className="tabs" style={{display:'flex',gap:8,marginBottom:16,borderBottom:'1px solid #e5e5e5'}}>
+        <button
+          onClick={()=>switchFamilia('Puertas')}
+          style={{padding:'8px 16px',border:'none',background:'none',cursor:'pointer',fontSize:14,fontWeight:familia==='Puertas'?600:400,color:familia==='Puertas'?'#1a1a1a':'#888',borderBottom:familia==='Puertas'?'2px solid #1a1a1a':'2px solid transparent'}}>
+          🚪 Puertas <span style={{fontSize:12,color:'#888'}}>({nPuertas})</span>
+        </button>
+        <button
+          onClick={()=>switchFamilia('Complementos')}
+          style={{padding:'8px 16px',border:'none',background:'none',cursor:'pointer',fontSize:14,fontWeight:familia==='Complementos'?600:400,color:familia==='Complementos'?'#1a1a1a':'#888',borderBottom:familia==='Complementos'?'2px solid #1a1a1a':'2px solid transparent'}}>
+          🧩 Complementos <span style={{fontSize:12,color:'#888'}}>({nComplementos})</span>
+        </button>
+      </div>
+
       <div className="filter-bar">
         <input style={{width:200}} placeholder="Buscar..." value={search} onChange={e=>setSearch(e.target.value)} />
-        <select style={{width:170}} value={catFilter} onChange={e=>setCatFilter(e.target.value)}>
+        <select style={{width:220}} value={catFilter} onChange={e=>setCatFilter(e.target.value)}>
           <option value="">Todas las categorías</option>
           {cats.map(c=><option key={c}>{c}</option>)}
         </select>
@@ -87,8 +128,9 @@ export default function Stock() {
           <option value="bajo">Bajo mínimo</option>
           <option value="sin">Sin stock</option>
         </select>
-        <span style={{color:'#888',fontSize:12}}>{filtered.length} productos</span>
+        <span style={{color:'#888',fontSize:12}}>{filtered.length} productos · {totalUnidades} uds</span>
       </div>
+
       <div className="card" style={{padding:0}}>
         <table className="tbl">
           <thead><tr><th>Producto</th><th>Categoría</th><th>Stock</th><th>Mín/Máx</th><th>Nivel</th><th>Estado</th><th>Coste</th><th></th></tr></thead>
@@ -113,11 +155,12 @@ export default function Stock() {
         </table>
         {filtered.length === 0 && <div className="empty-state">Sin productos</div>}
       </div>
+
       {modal && (
         <Modal title={modal==='new'?'Nuevo producto':'Editar producto'} onClose={()=>setModal(null)}>
           <div className="form-row c2">
             <div><label>Nombre</label><input value={form.nombre} onChange={e=>setForm({...form,nombre:e.target.value})} /></div>
-            <div><label>Categoría</label><select value={form.cat} onChange={e=>setForm({...form,cat:e.target.value})}><option>Puertas lacadas</option><option>Puertas laminadas</option><option>Accesorios</option></select></div>
+            <div><label>Categoría</label><input list="catlist" value={form.cat} onChange={e=>setForm({...form,cat:e.target.value})} /><datalist id="catlist">{allCats.map(c=><option key={c} value={c} />)}</datalist></div>
           </div>
           <div className="form-row c4">
             <div><label>Stock</label><input type="number" value={form.stock} onChange={e=>setForm({...form,stock:+e.target.value})} /></div>
