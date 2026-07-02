@@ -28,7 +28,7 @@ export default function Asistente() {
     setInput('')
     setMsgs(m => [...m, { role: 'user', text: userMsg }])
     setLoading(true)
-    const sys = 'Eres el asistente de Parquet Home, empresa de parquet y puertas en Barcelona. Hablas en español. Cuando te pregunten dónde está o dónde se encuentra un producto, indica su ubicación en el almacén (por ejemplo "Estantería 13 · Piso 2" o "Suelo"). Stock actual: ' + (context?.productos.map(p => p.nombre + ': ' + p.stock + ' ' + p.unidad + ' (min:' + p.min + ', ubicacion: ' + (p.ubicacion || 'sin ubicacion') + ')'#).join(', ') || 'sin datos')
+    const sys = 'Eres el asistente de Parquet Home, empresa de parquet y puertas en Barcelona. Hablas en español. Cuando te pregunten dónde está o dónde se encuentra un producto, indica su ubicación en el almacén (por ejemplo "Estantería 13 · Piso 2" o "Suelo"). Stock actual: ' + (context?.productos.map(p => p.nombre + ': ' + p.stock + ' ' + p.unidad + ' (min:' + p.min + ', ubicacion: ' + (p.ubicacion || 'sin ubicacion') + ')').join(', ') || 'sin datos')
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
