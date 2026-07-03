@@ -6,12 +6,14 @@ import Pedidos from './pages/Pedidos'
 import Clientes from './pages/Clientes'
 import Proveedores from './pages/Proveedores'
 import Asistente from './pages/Asistente'
+import Ubicaciones from './pages/Ubicaciones'
 import './App.css'
 
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: '▦', section: 'Principal' },
   { id: 'stock', label: 'Stock', icon: '📦', section: 'Principal' },
   { id: 'movimientos', label: 'Movimientos', icon: '⇅', section: 'Principal' },
+  { id: 'ubicaciones', label: 'Ubicaciones', icon: '📍', section: 'Principal' },
   { id: 'pedidos', label: 'Pedidos', icon: '🚚', section: 'Gestión' },
   { id: 'clientes', label: 'Clientes', icon: '👥', section: 'Gestión' },
   { id: 'proveedores', label: 'Proveedores', icon: '🏪', section: 'Gestión' },
@@ -26,6 +28,7 @@ export default function App() {
       case 'dashboard': return <Dashboard onNavigate={setPage} />
       case 'stock': return <Stock />
       case 'movimientos': return <Movimientos />
+      case 'ubicaciones': return <Ubicaciones />
       case 'pedidos': return <Pedidos />
       case 'clientes': return <Clientes />
       case 'proveedores': return <Proveedores />
