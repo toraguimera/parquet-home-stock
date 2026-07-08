@@ -98,14 +98,19 @@ export default function Pedidos() {
     const num = form.num || `PED-${String(pedidos.length + 1).padStart(3, '0')}`
     const fecha = form.fecha_pedido || new Date().toISOString().slice(0, 10)
 
-    const { error } = await supabase.from('pedidos').insert([{
+    // Convierte cadenas vacías en null para columnas DATE
+    const insertData = {
       ...form,
       num,
-      productos: JSON.stringify(lineas)
-    }])
+      productos: JSON.stringify(lineas),
+      fecha_entrega: form.fecha_entrega || null,
+      fecha_pedido: form.fecha_pedido || null,
+    }
+
+    const { error } = await supabase.from('pedidos').insert([insertData])
 
     if (error) {
-      alert('Error al guardar el pedido')
+      alert('Error al guardar el pedido: ' + (error.message || error.details || JSON.stringify(error)))
       setSaving(false)
       return
     }
