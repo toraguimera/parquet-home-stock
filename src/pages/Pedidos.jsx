@@ -18,6 +18,7 @@ export default function Pedidos() {
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState('todos')
   const [modal, setModal] = useState(false)
+  const [editingPedido, setEditingPedido] = useState(null) // pedido original al editar
   const [form, setForm] = useState(EMPTY)
   const [lineas, setLineas] = useState([])
   const [lineaForm, setLineaForm] = useState({ prod_id: '', cantidad: '' })
@@ -38,15 +39,33 @@ export default function Pedidos() {
   const filtered = pedidos.filter(p => filtro === 'todos' || p.estado === filtro)
   const fmtDate = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('es-ES') : '—'
 
-  function openModal() {
+  function openNew() {
+    setEditingPedido(null)
     setForm(EMPTY)
     setLineas([])
     setLineaForm({ prod_id: '', cantidad: '' })
     setModal(true)
   }
 
+  function openEdit(p) {
+    setEditingPedido(p)
+    setForm({
+      num: p.num,
+      proveedor: p.proveedor || '',
+      fecha_pedido: p.fecha_pedido || new Date().toISOString().slice(0, 10),
+      fecha_entrega: p.fecha_entrega || '',
+      estado: p.estado,
+      total: p.total || 0,
+      notas: p.notas || ''
+    })
+    setLineas(parseLineas(p.productos))
+    setLineaForm({ prod_id: '', cantidad: '' })
+    setModal(true)
+  }
+
   function closeModal() {
     setModal(false)
+    setEditingPedido(null)
     setLineas([])
     setLineaForm({ prod_id: '', cantidad: '' })
   }
@@ -80,69 +99,132 @@ export default function Pedidos() {
     if (lineas.length === 0) { alert('Añade al menos un producto al pedido'); return }
     setSaving(true)
 
+    // Stock actualizado antes de operar
     const { data: freshProds } = await supabase
       .from('productos')
       .select('id, nombre, stock, unidad')
       .order('nombre')
 
-    for (const linea of lineas) {
-      const prod = freshProds.find(p => p.id === linea.prod_id)
-      if (!prod) continue
-      if (linea.cantidad > prod.stock) {
-        alert(`Stock insuficiente para "${linea.nombre}": solo hay ${prod.stock} ${prod.unidad || 'ud'}`)
+    if (!freshProds) { alert('Error al leer el stock'); setSaving(false); return }
+
+    const stockMap = {}
+    freshProds.forEach(p => { stockMap[p.id] = p.stock })
+
+    if (editingPedido) {
+      // ── EDICIÓN ──
+      // 1. Revertir el efecto del pedido original en el stock
+      const lineasOriginales = parseLineas(editingPedido.productos)
+      for (const linea of lineasOriginales) {
+        stockMap[linea.prod_id] = (stockMap[linea.prod_id] || 0) + linea.cantidad
+      }
+
+      // 2. Comprobar que hay stock suficiente para las nuevas líneas
+      for (const linea of lineas) {
+        const disponible = stockMap[linea.prod_id] || 0
+        if (linea.cantidad > disponible) {
+          const prod = freshProds.find(p => p.id === linea.prod_id)
+          alert(`Stock insuficiente para "${linea.nombre}": hay ${disponible} ${prod?.unidad || 'ud'} disponibles`)
+          setSaving(false)
+          return
+        }
+      }
+
+      // 3. Aplicar nuevas líneas al stock
+      const stockFinal = { ...stockMap }
+      for (const linea of lineas) {
+        stockFinal[linea.prod_id] = (stockFinal[linea.prod_id] || 0) - linea.cantidad
+      }
+
+      // 4. Actualizar stock en BD
+      for (const [id, nuevoStock] of Object.entries(stockFinal)) {
+        const original = stockMap[id]
+        if (nuevoStock !== original) {
+          await supabase.from('productos').update({ stock: nuevoStock }).eq('id', +id)
+        }
+      }
+
+      // 5. Borrar movimientos anteriores de este pedido y crear los nuevos
+      await supabase.from('movimientos').delete().eq('ref', editingPedido.num)
+      const fecha = form.fecha_pedido || new Date().toISOString().slice(0, 10)
+      for (const linea of lineas) {
+        await supabase.from('movimientos').insert([{
+          prod_id: linea.prod_id,
+          tipo: 'salida',
+          cantidad: linea.cantidad,
+          ref: form.num || editingPedido.num,
+          fecha,
+          notas: form.proveedor ? `Pedido ${form.num || editingPedido.num} · ${form.proveedor}` : `Pedido ${form.num || editingPedido.num}`
+        }])
+      }
+
+      // 6. Actualizar el pedido
+      const { error } = await supabase.from('pedidos').update({
+        ...form,
+        productos: JSON.stringify(lineas),
+        fecha_entrega: form.fecha_entrega || null,
+        fecha_pedido: form.fecha_pedido || null,
+      }).eq('id', editingPedido.id)
+
+      if (error) {
+        alert('Error al actualizar: ' + (error.message || JSON.stringify(error)))
         setSaving(false)
         return
       }
-    }
 
-    const num = form.num || `PED-${String(pedidos.length + 1).padStart(3, '0')}`
-    const fecha = form.fecha_pedido || new Date().toISOString().slice(0, 10)
+    } else {
+      // ── NUEVO PEDIDO ──
+      // Comprobar stock suficiente
+      for (const linea of lineas) {
+        const disponible = stockMap[linea.prod_id] || 0
+        if (linea.cantidad > disponible) {
+          alert(`Stock insuficiente para "${linea.nombre}": solo hay ${disponible} ${freshProds.find(p=>p.id===linea.prod_id)?.unidad || 'ud'}`)
+          setSaving(false)
+          return
+        }
+      }
 
-    // Convierte cadenas vacías en null para columnas DATE
-    const insertData = {
-      ...form,
-      num,
-      productos: JSON.stringify(lineas),
-      fecha_entrega: form.fecha_entrega || null,
-      fecha_pedido: form.fecha_pedido || null,
-    }
+      const num = form.num || `PED-${String(pedidos.length + 1).padStart(3, '0')}`
+      const fecha = form.fecha_pedido || new Date().toISOString().slice(0, 10)
 
-    const { error } = await supabase.from('pedidos').insert([insertData])
+      const insertData = {
+        ...form,
+        num,
+        productos: JSON.stringify(lineas),
+        fecha_entrega: form.fecha_entrega || null,
+        fecha_pedido: form.fecha_pedido || null,
+      }
 
-    if (error) {
-      alert('Error al guardar el pedido: ' + (error.message || error.details || JSON.stringify(error)))
-      setSaving(false)
-      return
-    }
+      const { error } = await supabase.from('pedidos').insert([insertData])
 
-    const stockLocal = {}
-    freshProds.forEach(p => { stockLocal[p.id] = p.stock })
+      if (error) {
+        alert('Error al guardar el pedido: ' + (error.message || error.details || JSON.stringify(error)))
+        setSaving(false)
+        return
+      }
 
-    for (const linea of lineas) {
-      const nuevoStock = stockLocal[linea.prod_id] - linea.cantidad
-      stockLocal[linea.prod_id] = nuevoStock
+      // Actualizar stock y crear movimientos
+      for (const linea of lineas) {
+        const nuevoStock = (stockMap[linea.prod_id] || 0) - linea.cantidad
+        stockMap[linea.prod_id] = nuevoStock
+        await supabase.from('productos').update({ stock: nuevoStock }).eq('id', linea.prod_id)
+        await supabase.from('movimientos').insert([{
+          prod_id: linea.prod_id,
+          tipo: 'salida',
+          cantidad: linea.cantidad,
+          ref: num,
+          fecha,
+          notas: form.proveedor ? `Pedido ${num} · ${form.proveedor}` : `Pedido ${num}`
+        }])
+      }
 
-      await supabase.from('productos')
-        .update({ stock: nuevoStock })
-        .eq('id', linea.prod_id)
-
-      await supabase.from('movimientos').insert([{
-        prod_id: linea.prod_id,
-        tipo: 'salida',
-        cantidad: linea.cantidad,
-        ref: num,
-        fecha,
-        notas: form.proveedor ? `Pedido ${num} · ${form.proveedor}` : `Pedido ${num}`
-      }])
-    }
-
-    if (form.fecha_entrega) {
-      await supabase.from('eventos').insert([{
-        fecha: form.fecha_entrega,
-        titulo: `Entrega ${num}`,
-        tipo: 'entrega',
-        notas: form.proveedor
-      }])
+      if (form.fecha_entrega) {
+        await supabase.from('eventos').insert([{
+          fecha: form.fecha_entrega,
+          titulo: `Entrega ${num}`,
+          tipo: 'entrega',
+          notas: form.proveedor
+        }])
+      }
     }
 
     setSaving(false)
@@ -161,15 +243,11 @@ export default function Pedidos() {
 
     const lineasPedido = parseLineas(p.productos)
     if (lineasPedido.length > 0) {
-      const { data: freshProds } = await supabase
-        .from('productos')
-        .select('id, stock')
-      const stockMap = {}
-      freshProds.forEach(pr => { stockMap[pr.id] = pr.stock })
-
+      const { data: freshProds } = await supabase.from('productos').select('id, stock')
+      const sm = {}
+      freshProds?.forEach(pr => { sm[pr.id] = pr.stock })
       for (const linea of lineasPedido) {
-        const nuevoStock = (stockMap[linea.prod_id] || 0) + linea.cantidad
-        await supabase.from('productos').update({ stock: nuevoStock }).eq('id', linea.prod_id)
+        await supabase.from('productos').update({ stock: (sm[linea.prod_id] || 0) + linea.cantidad }).eq('id', linea.prod_id)
       }
     }
 
@@ -194,7 +272,7 @@ export default function Pedidos() {
           <div className="page-title">Pedidos</div>
           <div className="page-sub">Gestión de pedidos · el stock se actualiza automáticamente</div>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={openModal}>+ Nuevo pedido</button>
+        <button className="btn btn-primary btn-sm" onClick={openNew}>+ Nuevo pedido</button>
       </div>
 
       <div className="tab-bar">
@@ -251,6 +329,7 @@ export default function Pedidos() {
                   <td style={{ fontWeight: 600 }}>{p.total ? p.total + '€' : '—'}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn btn-sm" onClick={() => openEdit(p)}>✏️</button>
                       {p.estado !== 'recibido' && (
                         <button className="btn btn-sm" onClick={() => avanzar(p)}>→</button>
                       )}
@@ -266,14 +345,15 @@ export default function Pedidos() {
       </div>
 
       {modal && (
-        <Modal title="Nuevo pedido" onClose={closeModal}>
+        <Modal title={editingPedido ? `Editar pedido ${editingPedido.num}` : 'Nuevo pedido'} onClose={closeModal}>
           <div className="form-row c2">
             <div>
               <label>Nº pedido</label>
               <input
                 value={form.num}
-                placeholder={`Auto (PED-${String(pedidos.length + 1).padStart(3, '0')})`}
+                placeholder={editingPedido ? '' : `Auto (PED-${String(pedidos.length + 1).padStart(3, '0')})`}
                 onChange={e => setForm({ ...form, num: e.target.value })}
+                disabled={!!editingPedido}
               />
             </div>
             <div>
@@ -381,15 +461,24 @@ export default function Pedidos() {
             </div>
           </div>
 
-          {lineas.length > 0 && (
+          {editingPedido ? (
+            <div style={{ marginTop: 12, padding: '8px 12px', background: '#eff6ff', borderRadius: 6, fontSize: 12, color: '#1e40af', border: '1px solid #bfdbfe' }}>
+              ✏️ Al guardar, el stock se recalculará automáticamente respecto a los cambios.
+            </div>
+          ) : lineas.length > 0 && (
             <div style={{ marginTop: 12, padding: '8px 12px', background: '#fffbeb', borderRadius: 6, fontSize: 12, color: '#92400e', border: '1px solid #fde68a' }}>
               ⚡ Al crear el pedido, el stock se descontará automáticamente para{' '}
               {lineas.length === 1 ? '1 producto' : `${lineas.length} productos`}{' '}y quedará registrado en Movimientos.
             </div>
           )}
 
-          <button className="btn btn-primary" onClick={save} disabled={saving} style={{ marginTop: 16, width: '100%' }}>
-            {saving ? 'Guardando...' : '✓ Crear pedido y actualizar stock'}
+          <button
+            className="btn btn-primary"
+            onClick={save}
+            disabled={saving}
+            style={{ marginTop: 16, width: '100%' }}
+          >
+            {saving ? 'Guardando...' : editingPedido ? '✓ Guardar cambios' : '✓ Crear pedido y actualizar stock'}
           </button>
         </Modal>
       )}
